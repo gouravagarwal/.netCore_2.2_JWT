@@ -35,5 +35,11 @@ namespace WebApi.Controllers
             var users =  _userService.GetAll();
             return Ok(users);
         }
+
+        [HttpPost("update")]
+        public IActionResult Update([FromBody]User user)
+        {
+            return Ok(_userService.Update(user));
+        }
     }
 }
