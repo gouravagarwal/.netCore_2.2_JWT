@@ -15,46 +15,31 @@ namespace WebApi.Services
     {
         User Authenticate(string username, string password);
         IEnumerable<User> GetAll();
+
+        User Update(User user);
     }
 
     public class UserService : IUserService
     {
-        // users hardcoded for simplicity, store in a db with hashed passwords in production applications
-        private List<User> _users = new List<User>
-        { 
-            new User { Id = 1, FirstName = "Test", LastName = "User", Username = "test", Password = "test" } 
-        };
-
         private readonly AppSettings _appSettings;
+        private readonly UserDbContext _dbContext;
 
-        public UserService(IOptions<AppSettings> appSettings)
+        public UserService(IOptions<AppSettings> appSettings, UserDbContext dbContext)
         {
             _appSettings = appSettings.Value;
+            _dbContext = dbContext;
         }
 
         public User Authenticate(string username, string password)
         {
-            var user = _users.SingleOrDefault(x => x.Username == username && x.Password == password);
+            var user = _dbContext.Users.SingleOrDefault(x => x.Username == username && x.Password == password);
 
             // return null if user not found
             if (user == null)
                 return null;
 
-            // authentication successful so generate jwt token
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_appSettings.Secret);
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity(new Claim[] 
-                {
-                    new Claim(ClaimTypes.Name, user.Id.ToString())
-                }),
-                Expires = DateTime.UtcNow.AddDays(7),
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
-            };
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            user.Token = tokenHandler.WriteToken(token);
 
+            user.Token = GenerateToken(user);
             // remove password before returning
             user.Password = null;
 
@@ -64,10 +49,49 @@ namespace WebApi.Services
         public IEnumerable<User> GetAll()
         {
             // return users without passwords
-            return _users.Select(x => {
-                x.Password = null;
-                return x;
-            });
+            var users = _dbContext.Users.ToList();
+            users.ForEach(x => { x.Password = null; });
+
+            return users;
+        }
+
+        public User Update(User user)
+        {
+            var orgUser = _dbContext.Users.FirstOrDefault(x => x.Id == user.Id);
+
+            if (orgUser != null)
+            {
+                orgUser.Gender = user.Gender;
+                orgUser.FirstName = user.FirstName;
+
+                _dbContext.Users.Update(orgUser);
+                _dbContext.SaveChanges();
+
+                orgUser.Token = GenerateToken(orgUser);
+                
+            }
+            orgUser.Password = null;
+            return orgUser;
+        }
+
+        private string GenerateToken(User user)
+        {
+            // authentication successful so generate jwt token
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var key = Encoding.ASCII.GetBytes(_appSettings.Secret);
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
+                Subject = new ClaimsIdentity(new Claim[]
+                {
+                    new Claim(ClaimTypes.Name, user.Id.ToString()),
+                    new Claim(ClaimTypes.Gender, user.Gender.ToString())
+                }),
+                Expires = DateTime.UtcNow.AddDays(7),
+                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+            };
+            var token = tokenHandler.CreateToken(tokenDescriptor);
+
+            return tokenHandler.WriteToken(token);
         }
     }
 }
